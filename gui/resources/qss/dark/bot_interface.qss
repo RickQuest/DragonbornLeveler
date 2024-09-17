@@ -1,0 +1,16 @@
+QWidget#BotInterface {
+    background-color: rgb(39, 39, 39);
+}
+
+#container_widget {
+    background-color: rgb(39, 39, 39);
+}
+
+
+/* QWidget,
+#list,
+#textedit {
+    background-color: transparent;
+} */
+
+

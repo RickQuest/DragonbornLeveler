@@ -1,0 +1,98 @@
+name: Test and Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test_and_build:
+    strategy:
+      matrix:
+        os: [windows-latest]
+        python-version: [3.12]
+        label: [win-64]
+        prefix: ["C:\\Users\\runneradmin\\miniconda3\\envs\\dragonbornleveler"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Mambaforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-variant: Mambaforge
+          miniforge-version: latest
+          activate-environment: dragonbornleveler
+          use-mamba: true
+
+      - name: Cache conda environment
+        uses: actions/cache@v3
+        with:
+          path: ${{ matrix.prefix }}
+          key: conda-${{ runner.os }}-Python${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}
+        id: conda-cache
+
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ runner.os == 'Windows' && 'C:\\Users\\runneradmin\\AppData\\Local\\pip\\Cache' }}
+            ${{ runner.os == 'Linux' && '~/.cache/pip' }}
+          key: pip-${{ runner.os }}-Python${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}
+
+      - name: Update environment
+        run: mamba env update -n dragonbornleveler -f environment.yml
+        if: steps.conda-cache.outputs.cache-hit != 'true'
+
+      - name: Cache Tesseract installation
+        id: tesseract-cache
+        uses: actions/cache@v3
+        with:
+          path: 'C:/Program Files/Tesseract-OCR'
+          key: tesseract-${{ runner.os }}
+        if: runner.os == 'Windows'
+
+      - name: Install Tesseract-OCR
+        if: steps.tesseract-cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        run: choco install tesseract
+
+      - name: Add Tesseract to PATH
+        run: echo "C:\Program Files\Tesseract-OCR" | Out-File -Append -FilePath $env:GITHUB_PATH
+        if: runner.os == 'Windows'
+
+      - name: Activate Conda Environment
+        run: conda activate dragonbornleveler
+
+      - name: Verify Conda setup
+        run: |
+          conda info
+          conda list
+
+      - name: Run tests
+        id: run_tests
+        run: |
+          pytest  # Replace with your testing framework, if different
+
+      # Conditionally build only if tests pass
+      - name: Set PowerShell Execution Policy
+        if: runner.os == 'Windows' && steps.run_tests.outcome == 'success'
+        run: |
+          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+        shell: pwsh
+
+      - name: Build executable with PyInstaller
+        if: steps.run_tests.outcome == 'success'
+        run: pyinstaller main.spec
+
+      - name: Upload build artifact
+        if: steps.run_tests.outcome == 'success'
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-executable-${{ runner.os }}-Python${{ matrix.python-version }}
+          path: dist/

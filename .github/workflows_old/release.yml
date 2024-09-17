@@ -1,0 +1,56 @@
+name: Release
+
+permissions:
+  contents: read
+  actions: read
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger when a version tag is pushed (e.g., v1.0.0)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Download build artifact
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          github_token: ${{ secrets.ACTIONS_PAT }}
+          workflow: Test and Build
+          branch: main
+          name: built-executable-Windows-Python3.12
+          path: artifacts/
+
+      - name: Set prerelease flag
+        id: prerelease_check
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *"-alpha"* || "${GITHUB_REF_NAME}" == *"-beta"* || "${GITHUB_REF_NAME}" == *"-rc"* ]]; then
+            echo "prerelease=true" >> $GITHUB_ENV
+          else
+            echo "prerelease=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTIONS_PAT }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: "Release ${{ github.ref_name }}"
+          draft: false
+          prerelease: ${{ env.prerelease }}
+
+      - name: Upload DragonbornLeveler Executable to GitHub Release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/DragonbornLeveler.exe  # Adjust the path if necessary
+          asset_name: DragonbornLeveler-windows-Python3.12.exe
+          asset_content_type: application/octet-stream

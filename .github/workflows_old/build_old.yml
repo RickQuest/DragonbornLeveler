@@ -1,0 +1,62 @@
+name: Build
+
+on:
+  workflow_run:
+    workflows: ["Test"]
+    types:
+      - completed
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest]
+        python-version: [3.12]
+        label: [win-64]
+        prefix: ["C:\\Users\\runneradmin\\miniconda3\\envs\\dragonbornleveler"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+    # Initialize Conda (Windows)
+      - name: Initialize Conda
+        shell: pwsh
+        run: |
+            $condaPath = (conda info --base).Replace('\', '/')
+            source $condaPath/etc/profile.d/conda.sh
+
+      # Step 1: Set PowerShell execution policy to Unrestricted (Windows only)
+      - name: Set PowerShell Execution Policy
+        if: runner.os == 'Windows'
+        run: |
+            Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+        shell: pwsh
+
+      # Step 1: Restore Conda environment from cache
+      - name: Cache conda environment
+        uses: actions/cache@v3
+        with:
+          path: ${{ matrix.prefix }} #C:/Miniconda3/envs/dragonbornleveler
+          key: conda-${{ runner.os }}-Python${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}
+        id: cache
+
+
+      # Step 2: Activate the cached environment
+      - name: Activate Conda environment
+        run: |
+          conda activate dragonbornleveler
+
+      # Step 3: Build executable with PyInstaller
+      - name: Build executable with PyInstaller
+        run: |
+          pyinstaller main.spec
+
+      # Step 4: Upload the artifact
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-executable-${{ runner.os }}-Python${{ matrix.python-version }}  # Unique name for each OS/Python version
+          path: dist/  # Adjust as needed

@@ -1,0 +1,87 @@
+name: Build
+
+on:
+  workflow_run:
+    workflows: ["Test"]
+    types:
+      - completed
+
+jobs:
+  build:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    strategy:
+      matrix:
+        os: [windows-latest]
+        python-version: [3.12]
+        label: [win-64]
+        prefix: ["C:\\Users\\runneradmin\\miniconda3\\envs\\dragonbornleveler"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Set PowerShell execution policy to Unrestricted (Windows only)
+      - name: Set PowerShell Execution Policy
+        if: runner.os == 'Windows'
+        run: |
+          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+        shell: pwsh
+
+      # Setup conda using setup-miniconda
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-variant: Mambaforge
+          miniforge-version: latest
+          activate-environment: dragonbornleveler
+          use-mamba: true
+
+      # Cache Conda
+      - name: Cache conda environment
+        uses: actions/cache@v3
+        with:
+          path: ${{ matrix.prefix }}
+          key: conda-${{ runner.os }}-Python${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}
+        id: cache
+
+      # Update env (only if not cached)
+      - name: Update environment
+        run: mamba env update -n dragonbornleveler -f environment.yml
+        if: steps.cache.outputs.cache-hit != 'true'
+
+      # Cache Tesseract installation (Windows only)
+      - name: Cache Tesseract installation
+        id: tesseract-cache
+        uses: actions/cache@v3
+        with:
+          path: 'C:/Program Files/Tesseract-OCR'
+          key: tesseract-${{ runner.os }}
+        if: runner.os == 'Windows'
+
+      # Install Tesseract if not cached (Windows only)
+      - name: Install Tesseract-OCR
+        if: steps.tesseract-cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        run: choco install tesseract
+
+      # Add Tesseract to PATH (Windows only)
+      - name: Add Tesseract to PATH
+        run: echo "C:\Program Files\Tesseract-OCR" | Out-File -Append -FilePath $env:GITHUB_PATH
+        if: runner.os == 'Windows'
+
+      # Activate the conda environment
+      - name: Activate Conda Environment
+        run: conda activate dragonbornleveler
+
+      # Build executable with PyInstaller
+      - name: Build executable with PyInstaller
+        run: pyinstaller main.spec
+
+      # Upload the artifact
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-executable-${{ runner.os }}-Python${{ matrix.python-version }}
+          path: dist/

@@ -1,0 +1,114 @@
+name: Test, Build, and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags-ignore:
+      - '*'  # Ignore tag pushes
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test_build_release:
+    strategy:
+      matrix:
+        os: [windows-latest]
+        python-version: [3.12]
+        label: [win-64]
+        prefix: ["C:\\Users\\runneradmin\\miniconda3\\envs\\dragonbornleveler"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Mambaforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-variant: Mambaforge
+          miniforge-version: latest
+          activate-environment: dragonbornleveler
+          use-mamba: true
+
+      - name: Cache conda environment
+        uses: actions/cache@v3
+        with:
+          path: ${{ matrix.prefix }}
+          key: conda-${{ runner.os }}-Python${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}
+        id: conda-cache
+
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ runner.os == 'Windows' && 'C:\\Users\\runneradmin\\AppData\\Local\\pip\\Cache' }}
+          key: pip-${{ runner.os }}-Python${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}
+
+      - name: Update environment
+        run: mamba env update -n dragonbornleveler -f environment.yml
+        if: steps.conda-cache.outputs.cache-hit != 'true'
+
+      - name: Cache Tesseract installation
+        id: tesseract-cache
+        uses: actions/cache@v3
+        with:
+          path: 'C:/Program Files/Tesseract-OCR'
+          key: tesseract-${{ runner.os }}
+        if: runner.os == 'Windows'
+
+      - name: Install Tesseract-OCR
+        if: steps.tesseract-cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        run: choco install tesseract
+
+      - name: Add Tesseract to PATH
+        run: echo "C:\Program Files\Tesseract-OCR" | Out-File -Append -FilePath $env:GITHUB_PATH
+        if: runner.os == 'Windows'
+
+      - name: Activate Conda Environment
+        run: conda activate dragonbornleveler
+
+      - name: Verify Conda setup
+        run: |
+          conda info
+          conda list
+
+      - name: Run tests
+        id: run_tests
+        run: |
+          pytest  # Replace with your testing framework if different
+
+      # Conditionally build only if tests pass
+      - name: Set PowerShell Execution Policy
+        if: success()
+        run: |
+          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+        shell: pwsh
+
+      - name: Build executable with PyInstaller
+        if: success()
+        run: pyinstaller main.spec
+
+      # Conditionally create a release if on a tag
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && success()
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: "Release ${{ github.ref_name }}"
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+
+      - name: Upload DragonbornLeveler Executable to GitHub Release
+        if: steps.create_release.outputs.upload_url != '' && success()
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist\DragonbornLeveler.exe  # Adjust the path if necessary
+          asset_name: DragonbornLeveler-${{ matrix.os }}-Python${{ matrix.python-version }}.exe
+          asset_content_type: application/octet-stream

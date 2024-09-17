@@ -1,0 +1,112 @@
+# name: CI and Release Pipeline
+
+# on:
+#   push:
+#     branches:
+#       - main  # Trigger tests on the main branch
+#     tags:
+#       - 'v*.*.*'  # Trigger release workflow on version tags
+#   pull_request:
+#     branches:
+#       - main  # Run tests on pull requests to the main branch
+
+# permissions:
+#   contents: write  # Ensure write permissions to create releases
+
+# jobs:
+#   test:
+#     runs-on: windows-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       # Cache Conda package cache, so environment setup is faster
+#       - name: Cache Conda environment
+#         uses: actions/cache@v3
+#         with:
+#           path: ~/.conda/envs/dragonbornleveler
+#           key: ${{ runner.os }}-conda-env-${{ hashFiles('environment.yml') }}
+#           restore-keys: |
+#             ${{ runner.os }}-conda-env-
+
+#       - name: Cache Conda packages
+#         uses: actions/cache@v3
+#         with:
+#           path: ~/.conda/pkgs
+#           key: ${{ runner.os }}-conda-pkgs-${{ hashFiles('environment.yml') }}
+#           restore-keys: |
+#             ${{ runner.os }}-conda-pkgs-
+
+#       # Cache Tesseract installation to avoid reinstalling every run
+#       - name: Cache Tesseract installation
+#         id: tesseract-cache  # Add an id to reference it later
+#         uses: actions/cache@v3
+#         with:
+#           path: C:/Program Files/Tesseract-OCR
+#           key: ${{ runner.os }}-tesseract
+#           restore-keys: |
+#             ${{ runner.os }}-tesseract
+
+#       # Install Tesseract only if not cached
+#       - name: Install Tesseract-OCR
+#         if: steps.tesseract-cache.outputs.cache-hit != 'true'  # Reference the correct cache id
+#         run: choco install tesseract
+
+#       # Add Tesseract to PATH
+#       - name: Add Tesseract to PATH
+#         run: echo "C:\Program Files\Tesseract-OCR" | Out-File -Append -FilePath $env:GITHUB_PATH
+
+#       # Install Conda environment (using the cached packages if available)
+#       - name: Set up Conda
+#         uses: conda-incubator/setup-miniconda@v2
+#         with:
+#           activate-environment: dragonbornleveler
+#           environment-file: environment.yml
+#           python-version: 3.12
+#           auto-activate-base: false
+
+#       # Run unit tests
+#       - name: Run unit tests
+#         run: |
+#           conda activate dragonbornleveler
+#           pytest  # pytest will use the settings from pytest.ini
+
+#   build:
+#     runs-on: windows-latest
+#     needs: test  # Only run the build after tests are successful
+#     if: startsWith(github.ref, 'refs/tags')  # Run only on tag pushes (release process)
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       # Set up Conda environment for build
+#       - name: Set up Conda
+#         uses: conda-incubator/setup-miniconda@v2
+#         with:
+#           activate-environment: dragonbornleveler
+#           environment-file: environment.yml
+#           python-version: 3.12
+#           auto-activate-base: false
+
+#       # Build the executable using PyInstaller
+#       - name: Build executable with PyInstaller
+#         run: |
+#           conda activate dragonbornleveler
+#           pyinstaller main.spec
+
+#       # Upload the built executable as an artifact
+#       - name: Upload executable artifact
+#         uses: actions/upload-artifact@v3
+#         with:
+#           name: built-executable
+#           path: dist/DragonbornLeveler.exe
+
+#       # Create a GitHub release using the built executable
+#       - name: Create GitHub Release
+#         uses: softprops/action-gh-release@v1
+#         with:
+#           files: dist/DragonbornLeveler.exe
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

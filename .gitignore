@@ -1,0 +1,18 @@
+# Ignore VS Code settings and environment files
+.vscode/
+.env
+
+#Ignore temp and not file
+old_code.py
+cmd_cheatsheet.txt
+cheatsheet_old.md
+cheatsheet.html
+cheatsheet.md
+config.json
+
+#Ignore folder
+dist/
+build/
+.github/workflow_old/
+__pycache__/
+.pytest_cache/

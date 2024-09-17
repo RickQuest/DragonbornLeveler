@@ -1,0 +1,94 @@
+name: Build and Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger when a version tag is pushed (e.g., v1.0.0)
+
+jobs:
+  build_and_release:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: [3.12]
+        label: [win-64]
+        prefix: ["C:\\Users\\runneradmin\\miniconda3\\envs\\dragonbornleveler"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Mambaforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-variant: Mambaforge
+          miniforge-version: latest
+          activate-environment: dragonbornleveler
+          use-mamba: true
+
+      - name: Cache conda environment
+        uses: actions/cache@v3
+        with:
+          path: ${{ matrix.prefix }}
+          key: conda-${{ runner.os }}-Python${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}
+        id: conda-cache
+
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ runner.os == 'Windows' && 'C:\\Users\\runneradmin\\AppData\\Local\\pip\\Cache' }}
+          key: pip-${{ runner.os }}-Python${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}
+
+      - name: Update environment
+        if: steps.conda-cache.outputs.cache-hit != 'true'
+        run: mamba env update -n dragonbornleveler -f environment.yml
+
+      - name: Install Tesseract-OCR
+        if: runner.os == 'Windows'
+        run: choco install tesseract
+
+      - name: Add Tesseract to PATH
+        if: runner.os == 'Windows'
+        run: echo "C:\Program Files\Tesseract-OCR" | Out-File -Append -FilePath $env:GITHUB_PATH
+
+      - name: Activate Conda Environment
+        run: conda activate dragonbornleveler
+
+      - name: Build executable with PyInstaller
+        run: pyinstaller main.spec
+
+      - name: Set prerelease flag
+        id: prerelease_check
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *"-alpha"* || "${GITHUB_REF_NAME}" == *"-beta"* || "${GITHUB_REF_NAME}" == *"-rc"* ]]; then
+            echo "prerelease=true" >> $GITHUB_ENV
+          else
+            echo "prerelease=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: "Release ${{ github.ref_name }}"
+          draft: false
+          prerelease: ${{ env.prerelease }}
+
+      - name: Upload DragonbornLeveler Executable to GitHub Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist\DragonbornLeveler.exe  # Adjust the path if necessary
+          asset_name: DragonbornLeveler-windows-Python${{ matrix.python-version }}.exe
+          asset_content_type: application/octet-stream
+
